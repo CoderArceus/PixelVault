@@ -1,0 +1,22 @@
+node_modules/
+.env
+coverage/
+uploads/
+.s3rver/
+dist/
+*.log
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Expo / React Native
+.expo/
+.expo-shared/
+
+# Build dirs
+build/
+
+# IDEs
+.vscode/
+.idea/

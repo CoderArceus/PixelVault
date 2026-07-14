@@ -1,0 +1,592 @@
+openapi: 3.0.3
+info:
+  title: PixelVault API
+  description: >
+    Paid Media Locker backend. Users upload images, set an unlock price in coins,
+    and other users spend coins to unlock the original — locked users see a
+    server-generated blurred preview only.
+  version: 1.0.0
+servers:
+  - url: http://localhost:3000
+    description: Local (Docker) instance
+
+tags:
+  - name: Auth
+  - name: Users
+  - name: Posts
+  - name: Unlocks
+  - name: Inventory
+
+paths:
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a new user
+      description: Creates a user and initializes their wallet at 100 coins.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: alice@example.com
+                password:
+                  type: string
+                  format: password
+                  example: hunter2222
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponseRegister'
+        '400':
+          description: Invalid input (e.g. missing fields, invalid email format, short password)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Email already registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Log in
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  format: password
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponseLogin'
+        '400':
+          description: Missing email or password
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Too many login attempts (rate limited)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Rotate access token using a refresh token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken:
+                  type: string
+      responses:
+        '200':
+          description: New access token issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accessToken:
+                    type: string
+        '401':
+          description: Invalid or expired refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /users/me:
+    get:
+      tags: [Users]
+      summary: Get the authenticated user's profile and wallet balance
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Profile
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    $ref: '#/components/schemas/User'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /users/me/transactions:
+    get:
+      tags: [Users]
+      summary: Get the authenticated user's transaction history
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: List of transactions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transactions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Transaction'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /users/me/inventory:
+    get:
+      tags: [Inventory]
+      summary: List all posts the authenticated user has unlocked
+      description: >
+        Includes posts that have since been soft-deleted by their owner —
+        buyers retain permanent access.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: List of unlocked posts, each with a valid signed original URL
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  inventory:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/InventoryItem'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /posts:
+    get:
+      tags: [Posts]
+      summary: Get the public feed
+      description: >
+        Returns all active posts. Each includes a preview URL, price, and a
+        locked/unlocked/owned flag relative to the requesting user. Original
+        URLs are never included for locked posts.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Feed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  posts:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Post'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      tags: [Posts]
+      summary: Upload and publish a new post
+      description: >
+        Uploads the original image, generates a separate blurred preview
+        server-side (Sharp), and publishes it to the feed. Price and content
+        are immutable after creation — there is intentionally no PATCH endpoint.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image, price]
+              properties:
+                image:
+                  type: string
+                  format: binary
+                price:
+                  type: integer
+                  minimum: 1
+                  example: 50
+      responses:
+        '201':
+          description: Post created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  post:
+                    $ref: '#/components/schemas/Post'
+        '400':
+          description: Invalid input (e.g. missing image, non-positive price)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /posts/{id}:
+    get:
+      tags: [Posts]
+      summary: Get post detail
+      description: >
+        Always returns the preview URL. Returns the original URL only if the
+        requesting user owns the post or has an unlock record for it.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/PostId'
+      responses:
+        '200':
+          description: Post detail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  post:
+                    $ref: '#/components/schemas/Post'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Post not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags: [Posts]
+      summary: Soft-delete a post (owner only)
+      description: >
+        Sets status to 'deleted' and removes it from the public feed. The row
+        and storage objects are retained — buyers who already unlocked it keep
+        access via /users/me/inventory.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/PostId'
+      responses:
+        '200':
+          description: Post deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  post:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      status:
+                        type: string
+                      deleted_at:
+                        type: string
+                        format: date-time
+        '400':
+          description: Post is already deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Requesting user is not the owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Post not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /posts/{id}/unlock:
+    post:
+      tags: [Unlocks]
+      summary: Unlock a post
+      description: >
+        Atomic operation: checks balance, deducts coins, creates an unlock
+        record and a transaction record, and returns the original signed URL.
+        Idempotent — unlocking an already-unlocked post does not double-charge,
+        enforced by a UNIQUE(user_id, post_id) database constraint even under
+        concurrent requests.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/PostId'
+      responses:
+        '200':
+          description: Already unlocked (no charge)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnlockResponse'
+        '201':
+          description: Unlock successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnlockResponse'
+        '400':
+          description: User attempted to unlock their own post
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '402':
+          description: Insufficient balance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Post not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Too many unlock attempts (rate limited)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    PostId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          example: Insufficient balance
+        required:
+          type: integer
+          description: Used in 402 responses
+        current_balance:
+          type: integer
+          description: Used in 402 responses
+
+    AuthResponseRegister:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+          
+    AuthResponseLogin:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        user:
+          $ref: '#/components/schemas/User'
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        coin_balance:
+          type: integer
+          example: 100
+        created_at:
+          type: string
+          format: date-time
+
+    Post:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        owner_id:
+          type: string
+          format: uuid
+        price:
+          type: integer
+          example: 50
+        preview_url:
+          type: string
+          format: uri
+          description: Signed, time-limited URL to the blurred preview. Always present.
+        original_url:
+          type: string
+          format: uri
+          nullable: true
+          description: >
+            Signed, time-limited URL to the original file. Present only if the
+            requesting user owns the post or has unlocked it — otherwise absent
+            from the response entirely (not just null).
+        status:
+          type: string
+          enum: [active, deleted]
+        is_owner:
+          type: boolean
+        is_unlocked:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        deleted_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    Transaction:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        unlock_id:
+          type: string
+          format: uuid
+        amount:
+          type: integer
+          example: -50
+          description: Negative for spend
+        balance_after:
+          type: integer
+          example: 50
+        created_at:
+          type: string
+          format: date-time
+          
+    InventoryItem:
+      type: object
+      properties:
+        unlock_id:
+          type: string
+          format: uuid
+        price_paid:
+          type: integer
+        unlocked_at:
+          type: string
+          format: date-time
+        post:
+          $ref: '#/components/schemas/Post'
+          
+    UnlockResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        unlock:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            post_id:
+              type: string
+              format: uuid
+            price_paid:
+              type: integer
+            created_at:
+              type: string
+              format: date-time
+        transaction:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            amount:
+              type: integer
+            balance_after:
+              type: integer
+        original_url:
+          type: string
+          format: uri

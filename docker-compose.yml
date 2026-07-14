@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: pixelvault
+      POSTGRES_PASSWORD: pixelvault
+      POSTGRES_DB: pixelvault
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U pixelvault']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  s3rver:
+    image: minio/minio
+    command: server /data
+    ports:
+      - '4569:9000'
+    environment:
+      MINIO_ROOT_USER: S3RVER
+      MINIO_ROOT_PASSWORD: S3RVER-PASSWORD
+    volumes:
+      - s3data:/data
+
+  api:
+    build: .
+    restart: on-failure
+    ports:
+      - '3000:3000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      s3rver:
+        condition: service_started
+    environment:
+      PORT: 3000
+      NODE_ENV: development
+      DATABASE_URL: postgresql://pixelvault:pixelvault@postgres:5432/pixelvault
+      JWT_ACCESS_SECRET: dev-access-secret-change-me
+      JWT_REFRESH_SECRET: dev-refresh-secret-change-me
+      JWT_ACCESS_EXPIRY: 15m
+      JWT_REFRESH_EXPIRY: 7d
+      S3_ENDPOINT: http://s3rver:9000
+      S3_BUCKET: pixelvault-media
+      S3_ACCESS_KEY: S3RVER
+      S3_SECRET_KEY: S3RVER-PASSWORD
+      S3_REGION: us-east-1
+      S3_FORCE_PATH_STYLE: 'true'
+      SIGNED_URL_EXPIRY: '900'
+
+volumes:
+  pgdata:
+  s3data:
