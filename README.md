@@ -185,6 +185,9 @@ Run with:
 npm test
 ```
 
+### Continuous Integration (CI/CD)
+A GitHub Actions workflow is configured (`.github/workflows/test.yml`) to automatically spin up Postgres and Minio service containers and run the entire Jest + Supertest test suite on every `push` and `pull_request` to the `main` branch.
+
 ---
 
 ## Known Limitations / Non-Goals
@@ -197,4 +200,3 @@ Per the PRD, explicitly out of scope for this assignment:
 
 Optional/bonus items not required for correctness:
 - Automated storage cleanup of orphaned original files (posts with zero unlocks) — could be a scheduled background job
-- CI/CD pipeline (GitHub Actions running the test suite on push)
