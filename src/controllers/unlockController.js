@@ -5,6 +5,7 @@ const transactionModel = require('../models/transactionModel');
 const { getClient } = require('../config/db');
 const { getSignedDownloadUrl } = require('../config/s3');
 const auditModel = require('../models/auditModel');
+const feedCache = require('../config/feedCache');
 
 /**
  * POST /posts/:id/unlock
@@ -96,6 +97,9 @@ async function unlockPost(req, res, next) {
       await auditModel.logAttempt(userId, postId, 'success', client);
 
       await client.query('COMMIT');
+
+      // Unlock changes this user's locked/unlocked view — flush their cache only
+      feedCache.invalidateUser(userId);
 
       // 5. Return signed URL to the original
       const originalUrl = await getSignedDownloadUrl(post.storage_key_original, req.hostname);

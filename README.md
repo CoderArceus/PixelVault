@@ -188,6 +188,18 @@ npm test
 ### Continuous Integration (CI/CD)
 A GitHub Actions workflow is configured (`.github/workflows/test.yml`) to automatically spin up Postgres and Minio service containers and run the entire Jest + Supertest test suite on every `push` and `pull_request` to the `main` branch.
 
+### Feed Caching
+
+The `GET /posts` feed endpoint uses an in-memory cache (`node-cache`, 30-second TTL) keyed per user (`feed:{userId}`) to reduce database load on the read-heaviest endpoint.
+
+**Why per-user keys:** The feed response includes `is_owner` and `is_unlocked` flags that differ by requesting user. A shared/global cache key would serve user A's lock state to user B — a security leak, not just a staleness bug.
+
+**Invalidation strategy:**
+- **Post published or deleted** → flush ALL user caches (every user's feed content changes)
+- **Post unlocked** → flush ONLY the unlocking user's cache (only their lock flags change)
+
+**Explicit staleness tradeoff:** Other users may see stale feed data for up to 30 seconds after a publish or delete (eventual consistency). However, the *acting* user's own view is always immediately correct — their cache entry is flushed synchronously before the response is sent. This tradeoff is deliberate, tested, and documented in [feedCache.js](file:///Users/aryan/PixelVault/src/config/feedCache.js).
+
 ---
 
 ## Known Limitations / Non-Goals

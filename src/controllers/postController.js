@@ -4,6 +4,7 @@ const postModel = require('../models/postModel');
 const unlockModel = require('../models/unlockModel');
 const { uploadToS3, getSignedDownloadUrl } = require('../config/s3');
 const { generatePreview } = require('../utils/imageProcessor');
+const feedCache = require('../config/feedCache');
 
 /**
  * POST /posts
@@ -49,6 +50,9 @@ async function createPost(req, res, next) {
     const originalUrl = await getSignedDownloadUrl(storageKeyOriginal, req.hostname);
     const previewUrl = await getSignedDownloadUrl(storageKeyPreview, req.hostname);
 
+    // New post affects every user's feed — flush entire cache
+    feedCache.invalidateAll();
+
     res.status(201).json({
       post: {
         id: post.id,
@@ -72,6 +76,12 @@ async function createPost(req, res, next) {
  */
 async function getPosts(req, res, next) {
   try {
+    // Check per-user cache first (key: feed:{userId}, TTL: 30 s)
+    const cached = feedCache.get(req.user.id);
+    if (cached) {
+      return res.json(cached);
+    }
+
     const posts = await postModel.findAllActive(req.user.id);
 
     const feed = await Promise.all(
@@ -100,7 +110,9 @@ async function getPosts(req, res, next) {
       })
     );
 
-    res.json({ posts: feed });
+    const response = { posts: feed };
+    feedCache.set(req.user.id, response);
+    res.json(response);
   } catch (err) {
     next(err);
   }
@@ -178,6 +190,9 @@ async function deletePost(req, res, next) {
     }
 
     const deleted = await postModel.softDelete(post.id);
+
+    // Deleted post disappears from every user's feed — flush entire cache
+    feedCache.invalidateAll();
 
     res.json({
       post: {
