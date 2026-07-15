@@ -36,7 +36,16 @@ async function generatePreview(buffer) {
  * @returns {Promise<Buffer>} Optimized image as JPEG buffer
  */
 async function optimizeOriginal(buffer) {
-  return sharp(buffer)
+  const image = sharp(buffer);
+  const metadata = await image.metadata();
+
+  // If it's already a JPEG and within bounds, return the original buffer unchanged
+  // to avoid double-compressing client-optimized images.
+  if (metadata.format === 'jpeg' && metadata.width <= 2048 && metadata.height <= 2048) {
+    return buffer;
+  }
+
+  return image
     .resize({ width: 2048, height: 2048, fit: 'inside', withoutEnlargement: true })
     .jpeg({ quality: 85 })
     .toBuffer();
