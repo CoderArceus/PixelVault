@@ -235,6 +235,8 @@ At upload time (`POST /posts`), the original file is optimized once before stora
 
 The existing blurred preview generation (400px wide, quality 60, blur 20) is unchanged — it receives the already-optimized buffer as input, which makes it slightly faster.
 
+> **Note on redundancy:** Does this server-side optimization ever actually run? Rarely in normal use, because the mobile app already optimizes the image. However, it exists specifically for the cases where the client *can't* be trusted to have done that (e.g., someone bypassing the app and hitting the API directly). This provides defense-in-depth, ensuring the server doesn't assume clients behave.
+
 **Verification:** An automated test uploads a 4000×3000 image and asserts the stored original is capped at 2048×1536 with reduced file size.
 
 ---
