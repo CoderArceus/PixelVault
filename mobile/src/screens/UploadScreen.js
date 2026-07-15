@@ -14,6 +14,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { MaterialIcons } from '@expo/vector-icons';
 import { createPost } from '../api/posts';
 import { colors, typography, spacing, radii } from '../theme';
+import { processImageForUpload, formatBytes } from '../utils/imageUtils';
 import NeumorphicCard from '../components/ui/NeumorphicCard';
 import NeumorphicButton from '../components/ui/NeumorphicButton';
 import NeumorphicInput from '../components/ui/NeumorphicInput';
@@ -22,6 +23,8 @@ export default function UploadScreen({ navigation }) {
   const [imageUri, setImageUri] = useState(null);
   const [price, setPrice] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [processing, setProcessing] = useState(false);
+  const [compressionInfo, setCompressionInfo] = useState(null);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
 
@@ -34,14 +37,29 @@ export default function UploadScreen({ navigation }) {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
-      quality: 0.8,
+      quality: 1, // Let imageUtils handle compression to avoid OS-level silent downscaling
       allowsEditing: false,
     });
 
     if (!result.canceled && result.assets.length > 0) {
-      setImageUri(result.assets[0].uri);
+      const pickedUri = result.assets[0].uri;
       setSuccess(false);
       setError('');
+      setCompressionInfo(null);
+
+      // Client-side optimization: resize to max 1920px, compress JPEG 0.8
+      setProcessing(true);
+      try {
+        const processed = await processImageForUpload(pickedUri);
+        setImageUri(processed.uri);
+        setCompressionInfo(processed);
+      } catch (err) {
+        // If processing fails, fall back to the original URI
+        console.warn('Image processing failed, using original:', err);
+        setImageUri(pickedUri);
+      } finally {
+        setProcessing(false);
+      }
     }
   }
 
@@ -74,6 +92,8 @@ export default function UploadScreen({ navigation }) {
   function handleReset() {
     setImageUri(null);
     setPrice('');
+    setProcessing(false);
+    setCompressionInfo(null);
     setSuccess(false);
     setError('');
   }
@@ -114,8 +134,13 @@ export default function UploadScreen({ navigation }) {
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <NeumorphicCard style={styles.card}>
-          <TouchableOpacity style={styles.imagePickerContainer} onPress={pickImage} disabled={uploading}>
-            {imageUri ? (
+          <TouchableOpacity style={styles.imagePickerContainer} onPress={pickImage} disabled={uploading || processing}>
+            {processing ? (
+              <View style={styles.placeholderContainer}>
+                <ActivityIndicator size="large" color={colors.primary} />
+                <Text style={styles.processingText}>Optimizing image…</Text>
+              </View>
+            ) : imageUri ? (
               <View style={styles.imageWrapper}>
                 <Image source={{ uri: imageUri }} style={styles.imagePreview} resizeMode="cover" />
                 <View style={styles.changeImageOverlay}>
@@ -129,6 +154,17 @@ export default function UploadScreen({ navigation }) {
               </View>
             )}
           </TouchableOpacity>
+
+          {compressionInfo && (
+            <View style={styles.compressionBadge}>
+              <MaterialIcons name="compress" size={16} color={colors.success} />
+              <Text style={styles.compressionText}>
+                {compressionInfo.wasProcessed
+                  ? `Optimized: ${formatBytes(compressionInfo.originalSizeBytes)} → ${formatBytes(compressionInfo.processedSizeBytes)}  (${compressionInfo.processedWidth}×${compressionInfo.processedHeight})`
+                  : `Already optimal (${compressionInfo.processedWidth}×${compressionInfo.processedHeight})`}
+              </Text>
+            </View>
+          )}
 
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Unlock Price (Coins)</Text>
@@ -147,7 +183,7 @@ export default function UploadScreen({ navigation }) {
           <NeumorphicButton
             title={uploading ? 'Publishing...' : 'Publish'}
             onPress={handlePublish}
-            disabled={!imageUri || uploading}
+            disabled={!imageUri || uploading || processing}
             icon={!uploading && <MaterialIcons name="cloud-upload" size={20} color="#fff" />}
             style={styles.publishButton}
           />
@@ -229,6 +265,28 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.md,
     color: colors.textMuted,
     marginTop: spacing.sm,
+  },
+  processingText: {
+    fontFamily: typography.fontFamily.medium,
+    fontSize: typography.fontSize.md,
+    color: colors.primary,
+    marginTop: spacing.sm,
+  },
+  compressionBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.bgDark,
+    borderRadius: radii.md,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    marginBottom: spacing.md,
+    gap: 6,
+  },
+  compressionText: {
+    fontFamily: typography.fontFamily.medium,
+    fontSize: typography.fontSize.xs,
+    color: colors.textMuted,
+    flex: 1,
   },
   inputGroup: {
     width: '100%',

@@ -14,7 +14,7 @@ Built for the Konvo Full Stack Developer Internship assignment ("Paid Media Lock
 | Database | PostgreSQL |
 | Auth | JWT (access + refresh tokens) |
 | Storage | S3-compatible (Minio / s3rver) |
-| Image processing | Sharp (blur + downscale for previews) |
+| Image processing | Sharp (server: blur previews + original optimization), expo-image-manipulator (client: pre-upload resize/compress) |
 | Frontend | React Native (Expo), Android |
 | Testing | Jest + Supertest |
 | Containerization | Docker + docker-compose |
@@ -202,6 +202,44 @@ The `GET /posts` feed endpoint uses an in-memory cache (`node-cache`, 30-second 
 
 ---
 
+## Bonus — Storage & Media Handling
+
+Images are optimized at two stages of the pipeline to minimize storage costs and delivery bandwidth without visible quality loss:
+
+### 1. Client-side pre-upload optimization (React Native)
+
+**Library:** [`expo-image-manipulator`](https://docs.expo.dev/versions/latest/sdk/imagemanipulator/) (Expo SDK 54 compatible)
+
+Before an image is sent to the API, the mobile app resizes and compresses it on-device:
+
+| Parameter | Value | Reasoning |
+|---|---|---|
+| Max dimension | **1920px** (longest side) | Matches Full HD — no phone screen exceeds this |
+| JPEG quality | **0.8** | Visually lossless for photographic content |
+| Aspect ratio | Preserved | Uses `resize({ width })` or `resize({ height })` based on orientation |
+| Upscaling | Never | Images already smaller than 1920px are passed through unchanged |
+
+A before/after file size badge is shown in the upload UI so the user can see the reduction.
+
+### 2. Server-side original optimization (upload time)
+
+**Library:** [`sharp`](https://sharp.pixelplumbing.com/) v0.33.4
+
+At upload time (`POST /posts`), the original file is optimized once before storage in S3 — not on every future request:
+
+| Parameter | Value | Reasoning |
+|---|---|---|
+| Max dimension | **2048px** (longest side) | Slightly above client cap (1920px) so already-optimal uploads pass through unchanged. Covers 2K displays |
+| JPEG quality | **85** | Higher than client-side (80) since this is the "original" buyers pay to unlock — quality matters more here. 85 is the standard high-quality JPEG threshold |
+| Aspect ratio | Preserved | Uses `sharp.resize({ fit: 'inside', withoutEnlargement: true })` |
+| Format | JPEG | All originals stored as JPEG for consistency |
+
+The existing blurred preview generation (400px wide, quality 60, blur 20) is unchanged — it receives the already-optimized buffer as input, which makes it slightly faster.
+
+**Verification:** An automated test uploads a 4000×3000 image and asserts the stored original is capped at 2048×1536 with reduced file size.
+
+---
+
 ## Known Limitations / Non-Goals
 
 Per the PRD, explicitly out of scope for this assignment:
@@ -212,3 +250,4 @@ Per the PRD, explicitly out of scope for this assignment:
 
 Optional/bonus items not required for correctness:
 - Automated storage cleanup of orphaned original files (posts with zero unlocks) — could be a scheduled background job
+

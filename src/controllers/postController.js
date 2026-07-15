@@ -1,9 +1,8 @@
 const { v4: uuidv4 } = require('uuid');
-const path = require('path');
 const postModel = require('../models/postModel');
 const unlockModel = require('../models/unlockModel');
 const { uploadToS3, getSignedDownloadUrl } = require('../config/s3');
-const { generatePreview } = require('../utils/imageProcessor');
+const { generatePreview, optimizeOriginal } = require('../utils/imageProcessor');
 const feedCache = require('../config/feedCache');
 
 /**
@@ -25,17 +24,21 @@ async function createPost(req, res, next) {
     }
 
     const postId = uuidv4();
-    const ext = path.extname(req.file.originalname) || '.jpg';
 
     // S3 keys: separate prefixes for original and preview
-    const storageKeyOriginal = `originals/${postId}${ext}`;
+    // Extension is always .jpg — optimizeOriginal() outputs JPEG regardless of input format
+    const storageKeyOriginal = `originals/${postId}.jpg`;
     const storageKeyPreview = `previews/${postId}.jpg`; // Preview is always JPEG
 
-    // Upload original to S3
-    await uploadToS3(storageKeyOriginal, req.file.buffer, req.file.mimetype);
+    // Optimize original before storage: cap at 2048px longest side, JPEG quality 85.
+    // Applied once at upload time, not on every future request.
+    const optimizedBuffer = await optimizeOriginal(req.file.buffer);
 
-    // Generate blurred preview via Sharp and upload as distinct S3 object
-    const previewBuffer = await generatePreview(req.file.buffer);
+    // Upload optimized original to S3
+    await uploadToS3(storageKeyOriginal, optimizedBuffer, 'image/jpeg');
+
+    // Generate blurred preview from the already-optimized buffer (smaller input = faster)
+    const previewBuffer = await generatePreview(optimizedBuffer);
     await uploadToS3(storageKeyPreview, previewBuffer, 'image/jpeg');
 
     // Insert post record

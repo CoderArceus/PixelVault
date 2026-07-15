@@ -10,7 +10,7 @@ const router = Router();
 // Multer: memory storage — file stays as Buffer for Sharp processing, no local disk temp files
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB max
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB max to accommodate uncompressed 4K camera photos before server optimization
   fileFilter: (_req, file, cb) => {
     if (file.mimetype.startsWith('image/')) {
       cb(null, true);
