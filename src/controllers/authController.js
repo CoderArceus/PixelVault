@@ -10,11 +10,13 @@ const BCRYPT_ROUNDS = 12;
  */
 async function register(req, res, next) {
   try {
-    const { email, password } = req.body;
+    const password = req.body.password;
 
-    if (!email || !password) {
+    if (!req.body.email || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
     }
+    
+    const email = req.body.email.trim().toLowerCase();
 
     // Basic email format check
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -53,11 +55,13 @@ async function register(req, res, next) {
  */
 async function login(req, res, next) {
   try {
-    const { email, password } = req.body;
+    const password = req.body.password;
 
-    if (!email || !password) {
+    if (!req.body.email || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
     }
+    
+    const email = req.body.email.trim().toLowerCase();
 
     const user = await userModel.findByEmail(email);
     if (!user) {
