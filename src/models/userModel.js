@@ -25,7 +25,7 @@ async function create(email, passwordHash) {
 async function findByEmail(email) {
   const { rows } = await query(
     `SELECT id, email, password_hash, coin_balance, created_at
-     FROM users WHERE email = $1`,
+     FROM users WHERE LOWER(email) = LOWER($1)`,
     [email]
   );
   return rows[0] || null;
