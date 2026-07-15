@@ -64,7 +64,6 @@ Scan the QR code from `expo start` with Expo Go, or press `a` to launch the Andr
 ### 3. Running tests
 
 ```bash
-cd backend
 npm test
 ```
 
